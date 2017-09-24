@@ -1,0 +1,131 @@
+---
+title: "Exercice performance prediction"
+author: "Amelie"
+date: "24 septembre 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+# Summary
+Based on data coming from http://groupware.les.inf.puc-rio.br/har, we predict the manner people performed an exercice.
+
+# Prerequisites 
+We load the required librairies to run the code.
+
+```{r librairies}
+library(dplyr)
+library(caret)
+library(randomForest)
+```
+
+# Get the data 
+Here we load the data in R.  
+There are two datasets: One training set and on testing set (which is in fact a validation set as we will create a real testing set in the preprocessing section).  
+The validation set does not contain the variable "classe" indicating how the exercice was performed.
+
+```{r get data}
+# Download the csv files
+filename_train <- "train.csv"
+if (!file.exists(filename_train)){
+    url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+    download.file(url_train, destfile = "train.csv")
+} 
+
+filename_test <- "test.csv"
+if (!file.exists(filename_test)){
+    url_test <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+    download.file(url_test, destfile = "test.csv")
+} 
+
+# Load the datasets in R.
+training <- read.csv("train.csv")
+validating <- read.csv("test.csv")
+```
+
+# Clean data
+Now we should clean the data.  
+First we remove variables that contain more than 50% NAs in the training set.  
+Second we remove variables with variance near zero as these have less explanatory power.  
+Thirds we remove other variables that does not bring actual information such as IDs, user names and timestamps.  
+Finally we remove the same variables in the validation set.
+```{r clean data}
+dim(training)
+
+# Create a function to sum NAs
+sum_na <- function(x) {
+    sum(is.na(x))}
+
+# Remove the columns that contain more than 50% NAs
+## Create the vector of columns to remove
+col_to_remove <- vector()
+for(i in 1:ncol(training)){
+    if (sum_na(training[,i])>(0.5*nrow(training))){
+        col_to_remove <- c(col_to_remove, names(training[i]))
+    }
+}
+## Remove the columns in the vector from the training set
+training <- training[ , !(names(training) %in% col_to_remove)]
+
+# Remove variables with variance near zero
+training <-training[,-nearZeroVar(training)]
+
+# Remove variables without information
+training <- select(training, -X
+                   ,-user_name
+                   ,-raw_timestamp_part_1
+                   ,-raw_timestamp_part_2
+                   ,-cvtd_timestamp)
+
+# In the validation set keep only the columns that are also in the training set
+names_training <- names(training)
+validating <- validating[ , (names(validating) %in% names_training)]
+
+```
+
+# Preprocessing
+The preprocessing is limited to the split of our training data into training and testing sets
+```{r preprocessing}
+set.seed(123) 
+split <- createDataPartition(training$classe, p = 0.6, list = FALSE)
+train <- training[split, ]
+test <- training[-split, ]
+```
+
+# Model
+As we are in front of a classification problem, a model based on a tree would be appropriate. In order to have the best result, we will use the random forest algorithm that avoids the risk of natural overfitting of simple trees.
+```{r model}
+# Create the model based on random forest algorithm
+set.seed(123)
+rf_model <- randomForest(classe~.,
+                         data = na.omit(train),
+                         ntree = 50,
+                         type="classification",
+                         importance=TRUE)
+# Use our model to predict the "classe" in our test set
+pred<-predict(rf_model,test)
+# View the confusion matrix and precision values
+confusionMatrix(pred,test$classe)
+```
+
+As we can see the results are very good and the model does not require further tuning.
+
+# Validation
+Finally we apply here the model on the 20 test cases of our validation data set.
+```{r test}
+# Fixing the column class types as per tips in the course forum
+fixFrame <- head(training,1) 
+fixFrame <- fixFrame[, -length(colnames(fixFrame))] 
+validating1 <- validating
+validating1 <- rbind(fixFrame, validating1) 
+validating1 <- validating1[-1,] 
+
+# Apply model on the validation set
+validating_pred <- predict(rf_model,newdata=validating1) 
+validating_pred 
+```
+
+
